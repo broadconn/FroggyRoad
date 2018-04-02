@@ -1,5 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using System;
 
@@ -18,30 +17,30 @@ public class FrogControl : MonoBehaviour {
     [SerializeField]
     AnimationCurve jumpScaleAnim;
 
-    Transform model;
-    Rigidbody rb;
-
-    FrogState state = FrogState.Idle;
+    //jump
     Vector3 jumpDir = Vector3.forward;
     Vector3 lookDir = Vector3.forward;
-
     const float jumpTime = 0.18f;
+    const float jumpHeight = 0.5f;
     float timeTriggeredJump;
     Vector3 jumpOrigin;
-    float jumpHeight = 0.5f;
-    GameObject movingThing;
+    Log logTarget;
 
+    //model animation
+    float modelY;
+    float timeTriggeredBob = -10;
+    const float bobHeight = 0.2f;
+    const float bobTime = 0.2f;
+
+    //death
     float timeDied = 0;
     const float timeDeadBeforeReset = 1.0f;
 
+    Rigidbody rb;
+    Transform model;
+    FrogState state = FrogState.Idle;
     List<Action> moveCommands = new List<Action>();
-
     ParticleSystem splashParticles, deathParticles;
-
-    float modelY;
-    float timeTriggeredBob = -10;
-    float bobHeight = 0.2f;
-    float bobTime = 0.2f;
 
     public AnimationCurve WaterBob {
         get { return waterBob; }
@@ -66,20 +65,24 @@ public class FrogControl : MonoBehaviour {
 
         float jumpY = 0;
 
-        //move
+        //record initial position
         Vector3 tgtMovePos = transform.position;
-
-        //handle jump
+        
+        //update states
+        if (state == FrogState.Idle) { //just wait for commands
+            CheckForQueuedCommands(); 
+        } 
         if (state == FrogState.Jumping) {
+            //calc position through jump as time through animation
             float timeThroughJump = Time.time - timeTriggeredJump;
             float jumpTimeMod = jumpTime / ((moveCommands.Count / 2f) + 1);
             float percThroughJump = timeThroughJump / jumpTimeMod;
             float adjustedTimePos = jumpXZAnim.Evaluate(percThroughJump);
             Vector3 tgtPos = jumpOrigin + jumpDir;
 
-            //if on moving thing, move towards its center point
-            if (movingThing != null) {
-                tgtPos = new Vector3(movingThing.transform.position.x, transform.position.y, movingThing.transform.position.z);
+            //if we are jumping onto a log, target its center point
+            if (logTarget != null) {
+                tgtPos = new Vector3(logTarget.transform.position.x, transform.position.y, logTarget.transform.position.z); //maintain our Y pos so we dont jump inside the log
                 tgtMovePos = Vector3.Lerp(jumpOrigin, tgtPos, adjustedTimePos);
             }
             //otherwise move towards the int point
@@ -89,11 +92,11 @@ public class FrogControl : MonoBehaviour {
             }
             jumpY = jumpYAnim.Evaluate(percThroughJump) * jumpHeight;
 
+            //detect jump end
             if (percThroughJump >= 1) JumpEnded();
         }
-        else if (state == FrogState.Idle) {
-            CheckForQueuedCommands();
-        }
+
+        //apply any movement
         rb.MovePosition(tgtMovePos);
 
         //rotate 
@@ -115,6 +118,7 @@ public class FrogControl : MonoBehaviour {
 
     void CheckForQueuedCommands() {
         if (state == FrogState.Dead) return;
+        //execute queued commands, remove from queue
         if (moveCommands.Count > 0) {
             moveCommands[0]();
             moveCommands.RemoveAt(0);
@@ -122,31 +126,26 @@ public class FrogControl : MonoBehaviour {
     }
 
     void HandleInput() {
-        //check for look 
+        //look + jump on arrow key press
         if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) {
-            lookDir = Vector3.right;
+            Vector3 cmdDir = Vector3.right;
+            lookDir = cmdDir;
+            moveCommands.Add(() => { Jump(cmdDir); });
         }
         if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) {
-            lookDir = Vector3.left;
+            Vector3 cmdDir = Vector3.left;
+            lookDir = cmdDir;
+            moveCommands.Add(() => { Jump(cmdDir); });
         }
         if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) {
-            lookDir = Vector3.forward;
+            Vector3 cmdDir = Vector3.forward;
+            lookDir = cmdDir;
+            moveCommands.Add(() => { Jump(cmdDir); });
         }
         if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) {
-            lookDir = Vector3.back;
-        }
-        //check for jump 
-        if (Input.GetKeyUp(KeyCode.RightArrow) || Input.GetKeyUp(KeyCode.D)) {
-            moveCommands.Add(() => { Jump(Vector3.right); });
-        }
-        if (Input.GetKeyUp(KeyCode.LeftArrow) || Input.GetKeyUp(KeyCode.A)) {
-            moveCommands.Add(() => { Jump(Vector3.left); });
-        }
-        if (Input.GetKeyUp(KeyCode.UpArrow) || Input.GetKeyUp(KeyCode.W)) {
-            moveCommands.Add(() => { Jump(Vector3.forward); });
-        }
-        if (Input.GetKeyUp(KeyCode.DownArrow) || Input.GetKeyUp(KeyCode.S)) {
-            moveCommands.Add(() => { Jump(Vector3.back); });
+            Vector3 cmdDir = Vector3.back;
+            lookDir = cmdDir;
+            moveCommands.Add(() => { Jump(cmdDir); });
         }
     }
 
@@ -154,32 +153,35 @@ public class FrogControl : MonoBehaviour {
         jumpDir = dir;
         lookDir = dir;
 
-        //test for jumping onto a log
-        Vector3 testInDir = transform.position + new Vector3(0, -0.5f, 0) + jumpDir;
+        //test for jumping onto a log 
+        logTarget = null;
+        Vector3 testInDir = transform.position + new Vector3(0, -0.5f /*log test height*/, 0) + jumpDir;
         Collider[] hitColliders = Physics.OverlapSphere(testInDir, 0.5f);
-        movingThing = null;
         List<Transform> logsInRange = new List<Transform>();
         for (int i = 0; i < hitColliders.Length; i++) {
             if (hitColliders[i].tag == "Moving")
                 logsInRange.Add(hitColliders[i].transform);
         }
-        if (logsInRange.Count > 0) { //if we have logs...
-            //order by closest
+        //if we have logs in jump range...
+        if (logsInRange.Count > 0) {
+            //find the closest one
             float closestDist = float.MaxValue;
             Transform closest = logsInRange[0];
             foreach (Transform t in logsInRange) {
                 float dist = Vector2.Distance(transform.position, t.position);
-                if (t.GetComponent<Log>().Active && !closest.GetComponent<Log>().Active || dist < closestDist) { //if this is closer 
+                //if log is active and closer, consider it
+                if (t.GetComponent<Log>().Active && !closest.GetComponent<Log>().Active || dist < closestDist) {
                     closest = t;
                     closestDist = dist;
                 }
             }
-            movingThing = closest.gameObject;
+            logTarget = closest.GetComponent<Log>();
         }
 
-        //check for attempting to jump into tree or other obstruction
+        //check for attempting to jump into an obstruction (tree, wall)
+        //TODO: check for vehicle + die 
         if (Physics.Raycast(transform.position + new Vector3(0, 0.5f, 0), dir, 1f)) {
-            jumpDir = Vector3.zero;
+            jumpDir = Vector3.zero; //do nothing
             //TODO animate hit-a-wall
             return;
         }
@@ -192,14 +194,14 @@ public class FrogControl : MonoBehaviour {
     void JumpEnded() {
         state = FrogState.Idle;
 
-        //check for jumped into water, kill the frog dead >:D
+        //check for jumped into water, kill the frog >:D
         RaycastHit hit;
         if (Physics.Raycast(transform.position, Vector3.down, out hit, 10f)) {
             if (hit.transform.tag == "Moving") {
                 if (!hit.transform.GetComponent<Log>().Active) {
                     Destroy(hit.transform.gameObject);
-                    rb.velocity = Vector3.zero;
-                    rb.AddForce(Vector3.down * 10, ForceMode.Impulse);
+                    rb.velocity = Vector3.zero; //stop any xz velocity
+                    rb.AddForce(Vector3.down * 10, ForceMode.Impulse); //fall into water
                     state = FrogState.Dead;
                     timeDied = Time.time;
                     splashParticles.transform.position = transform.position;
@@ -210,18 +212,20 @@ public class FrogControl : MonoBehaviour {
         }
 
         //check for jumped-onto-log waterbob
-        if (movingThing != null) {
+        if (logTarget != null) {
             timeTriggeredBob = Time.time;
-            movingThing.GetComponent<Log>().WaterBobLog();
+            logTarget.TriggerLogWaterBob();
         }
 
+        //see if there is a next command to execute
         CheckForQueuedCommands();
     }
 
     private void OnTriggerEnter(Collider other) {
-        if(other.tag == "Vehicle") {
+        //vehicle death
+        if (other.tag == "Vehicle") {
             transform.localScale = new Vector3(transform.localScale.x, 0.07f, transform.localScale.z);
-            rb.velocity = Vector3.zero; 
+            rb.velocity = Vector3.zero;
             state = FrogState.Dead;
             timeDied = Time.time;
             deathParticles.transform.position = transform.position;

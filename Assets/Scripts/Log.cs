@@ -36,9 +36,11 @@ public class Log : MonoBehaviour {
     }
 
     // Update is called once per frame
-    void Update() {
+    void FixedUpdate() {
         //move
-        float xPos = transform.position.x + (scrollSpeed * Mathf.Sign(scrollDir)) * Time.deltaTime;
+        float xPos = transform.position.x + (scrollSpeed * Mathf.Sign(scrollDir)) * Time.fixedDeltaTime;
+
+        //reset position if off screen
         if (scrollDir > 0 && xPos > logWidth / 2f) {
             float diff = xPos - (logWidth / 2f);
             xPos = -logWidth / 2f + diff;
@@ -48,10 +50,10 @@ public class Log : MonoBehaviour {
             xPos = logWidth / 2f - diff;
         }
 
-        //finalize movement
+        //apply movement
         Vector3 tgtPos = new Vector3(xPos, transform.position.y, transform.position.z);
-        rb.MovePosition(tgtPos);
-        
+        rb.MovePosition(tgtPos); 
+         
         //water bob (only affects the model)
         float bobTimePassed = Time.time - timeTriggeredBob; 
         float bobMod = bobHeight * FrogControl.Instance.WaterBob.Evaluate(bobTimePassed / FrogControl.Instance.BobTime);
@@ -69,7 +71,7 @@ public class Log : MonoBehaviour {
         restOfLog = brothers;
     }
 
-    public void WaterBobLog() {
+    public void TriggerLogWaterBob() {
         foreach (Log l in restOfLog)
             l.SetWaterBobTime();
     }
